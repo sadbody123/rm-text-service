@@ -11,6 +11,7 @@ use subtle::ConstantTimeEq;
 
 pub const ROUTES: &[(&str, &str)] = &[
     ("GET", "/ping"),
+    ("POST", "/echo"),
     ("POST", "/users"),
     ("POST", "/sessions"),
     ("DELETE", "/sessions/current"),
@@ -49,6 +50,24 @@ pub fn valid_name(name: &str, max: usize) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+const MAX_TEXT_BYTES: usize = 65_536;
+
+fn text_value(body: &Value) -> Result<String, (u16, Value)> {
+    let Some(object) = body.as_object() else {
+        return Err(error(400, "Expected object"));
+    };
+    if object.len() != 1 {
+        return Err(error(400, "Invalid text fields"));
+    }
+    let Some(text) = object.get("text").and_then(Value::as_str) else {
+        return Err(error(400, "Expected text"));
+    };
+    if text.len() > MAX_TEXT_BYTES {
+        return Err(error(413, "Text too large"));
+    }
+    Ok(text.to_owned())
+}
+
 fn password_hash(password: &str, salt: &[u8; 16]) -> [u8; 32] {
     let mut output = [0; 32];
     pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, 100_000, &mut output);
@@ -81,6 +100,12 @@ impl Service {
         }
         if method == "GET" && path == "/ping" {
             return (200, json!({"data": "pong"}));
+        }
+        if method == "POST" && path == "/echo" {
+            return match text_value(body) {
+                Ok(text) => (200, json!({"data": text})),
+                Err(response) => response,
+            };
         }
         if method == "POST" && matches!(path, "/users" | "/sessions") {
             let Some(name) = body.get("username").and_then(Value::as_str) else {
