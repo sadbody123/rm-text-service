@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use sha2::Sha256;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
 
 pub const ROUTES: &[(&str, &str)] = &[
@@ -42,16 +43,36 @@ fn text_name(path: &str) -> Option<&str> {
     }
 }
 
+struct Credential {
+    token: String,
+    expires_at: Instant,
+}
+
 pub struct User {
     pub salt: [u8; 16],
     pub digest: [u8; 32],
-    pub token: Option<String>,
+    token: Option<Credential>,
     pub texts: BTreeMap<String, String>,
 }
 
-#[derive(Default)]
 pub struct Service {
     pub users: Mutex<BTreeMap<String, User>>,
+    token_ttl: Duration,
+}
+
+impl Default for Service {
+    fn default() -> Self {
+        Self::new(Duration::from_secs(300))
+    }
+}
+
+impl Service {
+    pub fn new(token_ttl: Duration) -> Self {
+        Self {
+            users: Mutex::new(BTreeMap::new()),
+            token_ttl,
+        }
+    }
 }
 
 pub fn error(status: u16, message: &str) -> (u16, Value) {
@@ -115,9 +136,19 @@ impl Service {
             return error(401, "Invalid username or password");
         }
         let token = new_token();
-        user.token = Some(token.clone());
-        // Later server task: record a deadline and include expires_in.
-        (200, json!({"data": {"token": token}}))
+        user.token = Some(Credential {
+            token: token.clone(),
+            expires_at: Instant::now() + self.token_ttl,
+        });
+        (
+            200,
+            json!({
+                "data": {
+                    "token": token,
+                    "expires_in": self.token_ttl.as_secs(),
+                }
+            }),
+        )
     }
 }
 
@@ -201,10 +232,16 @@ impl Service {
                 return error(400, "Invalid text name");
             }
             let token = authorization.strip_prefix("Bearer ").unwrap_or("");
+            let now = Instant::now();
             let mut users = self.users.lock().unwrap();
             let name = users
                 .iter()
-                .find(|(_, user)| !token.is_empty() && user.token.as_deref() == Some(token))
+                .find(|(_, user)| {
+                    !token.is_empty()
+                        && user.token.as_ref().is_some_and(|credential| {
+                            credential.token == token && now < credential.expires_at
+                        })
+                })
                 .map(|(name, _)| name.clone());
             let Some(name) = name else {
                 return error(401, "Login required");
@@ -262,6 +299,7 @@ mod tests {
         let old = format!("Bearer {}", login["data"]["token"].as_str().unwrap());
         let login = service.handle("POST", "/sessions", &account, "").1;
         let current = format!("Bearer {}", login["data"]["token"].as_str().unwrap());
+        assert_eq!(login["data"]["expires_in"], 300);
         assert_ne!(old, current);
         assert_eq!(service.handle("GET", "/texts", &Value::Null, &old).0, 401);
         assert_eq!(
@@ -323,6 +361,34 @@ mod tests {
         assert_eq!(
             service.handle("GET", "/texts", &Value::Null, &authorization),
             (200, json!({"data": []}))
+        );
+    }
+
+    #[test]
+    fn expired_token_is_rejected_without_renewal() {
+        let service = Service::new(Duration::from_millis(200));
+        let account = json!({"username":"alice", "password":"password1"});
+        assert_eq!(service.handle("POST", "/users", &account, "").0, 201);
+        let login = service.handle("POST", "/sessions", &account, "");
+        let authorization = format!("Bearer {}", login.1["data"]["token"].as_str().unwrap());
+        assert_eq!(
+            service
+                .handle("GET", "/texts", &Value::Null, &authorization)
+                .0,
+            200
+        );
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(
+            service
+                .handle("GET", "/texts", &Value::Null, &authorization)
+                .0,
+            401
+        );
+        assert_eq!(
+            service
+                .handle("DELETE", "/sessions/current", &Value::Null, &authorization)
+                .0,
+            401
         );
     }
 }

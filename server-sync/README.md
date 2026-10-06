@@ -15,8 +15,10 @@ cargo build --release --locked
 ## 运行
 
 ```bash
-cargo run --locked -- --address 127.0.0.1:7878
+cargo run --locked -- --address 127.0.0.1:7878 --token-ttl-seconds 300
 ```
+
+`--token-ttl-seconds` 是正整数，默认 300。登录响应里的 `expires_in` 就是这个秒数，访问受保护接口不会续期。
 
 默认地址是 `127.0.0.1:7878`。接口包括 `GET /ping`、`POST /echo`、`POST /users`、`POST /sessions`、`DELETE /sessions/current`、`DELETE /users/me`、`GET /texts`、`PUT /texts/{name}`、`GET /texts/{name}` 和 `DELETE /texts/{name}`。
 

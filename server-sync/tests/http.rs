@@ -49,6 +49,7 @@ fn http_account_lifecycle() {
         .dispatch()
         .into_json::<Value>()
         .unwrap();
+    assert_eq!(login["data"]["expires_in"], 300);
     let authorization = format!("Bearer {}", login["data"]["token"].as_str().unwrap());
     let texts = client
         .get("/texts")
