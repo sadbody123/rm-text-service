@@ -1,7 +1,9 @@
 use clap::Parser;
 use reqwest::Method;
 use reqwest::blocking::Client;
-use rm_client_sync::{exchange, prepare_echo, prepare_get, prepare_put, read_multiline_text};
+use rm_client_sync::{
+    exchange, prepare_delete_text, prepare_echo, prepare_get, prepare_put, read_multiline_text,
+};
 use serde_json::json;
 use std::io::{self, Write};
 use std::time::Duration;
@@ -70,7 +72,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let prepared = prepare_get(&input("name: ")?);
                 (prepared.method, prepared.path, prepared.body)
             }
-            "delete-user" | "delete" => {
+            "delete" => {
+                let prepared = prepare_delete_text(&input("name: ")?);
+                (prepared.method, prepared.path, prepared.body)
+            }
+            "delete-user" => {
                 println!("This task is not implemented in the starting code yet.");
                 continue;
             }

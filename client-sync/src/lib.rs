@@ -81,6 +81,44 @@ pub fn prepare_get(name: &str) -> PreparedRequest {
     }
 }
 
+pub fn prepare_delete_text(name: &str) -> PreparedRequest {
+    PreparedRequest {
+        method: Method::DELETE,
+        path: format!("/texts/{name}"),
+        body: None,
+    }
+}
+
+pub fn prepare_delete_user() -> PreparedRequest {
+    PreparedRequest {
+        method: Method::DELETE,
+        path: "/users/me".to_owned(),
+        body: None,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum TokenChange {
+    Keep,
+    Set(String),
+    Clear { prompt_login: bool },
+}
+
+pub fn token_change(command: &str, status: u16, value: &Value) -> TokenChange {
+    if command == "login" && status == 200 && let Some(token) = value["data"]["token"].as_str() {
+        return TokenChange::Set(token.to_owned());
+    }
+    if status == 401 {
+        return TokenChange::Clear { prompt_login: true };
+    }
+    if status == 200 && (command == "logout" || command == "delete-user") {
+        return TokenChange::Clear {
+            prompt_login: false,
+        };
+    }
+    TokenChange::Keep
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +187,18 @@ mod tests {
             prepare_get("note"),
             PreparedRequest {
                 method: Method::GET,
+                path: "/texts/note".to_owned(),
+                body: None,
+            }
+        );
+    }
+
+    #[test]
+    fn delete_text_targets_the_named_text() {
+        assert_eq!(
+            prepare_delete_text("note"),
+            PreparedRequest {
+                method: Method::DELETE,
                 path: "/texts/note".to_owned(),
                 body: None,
             }
