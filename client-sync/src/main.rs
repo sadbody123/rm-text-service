@@ -1,6 +1,8 @@
 use clap::Parser;
+use reqwest::Method;
 use reqwest::blocking::Client;
-use serde_json::{Value, json};
+use rm_client_sync::{exchange, prepare_echo, read_multiline_text};
+use serde_json::json;
 use std::io::{self, Write};
 use std::time::Duration;
 
@@ -34,24 +36,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => break,
             Err(error) => return Err(error.into()),
         };
-        let mut body = Value::Null;
-        let (method, path) = match command.as_str() {
+        let (method, path, body) = match command.as_str() {
             "q" => break,
-            "ping" => ("GET", "/ping"),
-            "list" => ("GET", "/texts"),
-            "logout" => ("DELETE", "/sessions/current"),
+            "ping" => (Method::GET, "/ping".to_owned(), None),
+            "list" => (Method::GET, "/texts".to_owned(), None),
+            "logout" => (Method::DELETE, "/sessions/current".to_owned(), None),
             "register" | "login" => {
-                body = json!({"username": input("username: ")?, "password": rpassword::prompt_password("password: ")?});
-                (
-                    "POST",
-                    if command == "register" {
-                        "/users"
-                    } else {
-                        "/sessions"
-                    },
-                )
+                let body = json!({
+                    "username": input("username: ")?,
+                    "password": rpassword::prompt_password("password: ")?,
+                });
+                let path = if command == "register" {
+                    "/users"
+                } else {
+                    "/sessions"
+                };
+                (Method::POST, path.to_owned(), Some(body))
             }
-            "echo" | "delete-user" | "put" | "get" | "delete" => {
+            "echo" => {
+                println!("text: finish with a line containing only .");
+                let text = read_multiline_text(&mut io::stdin().lock())?;
+                let prepared = prepare_echo(&text);
+                (prepared.method, prepared.path, prepared.body)
+            }
+            "delete-user" | "put" | "get" | "delete" => {
                 println!("This task is not implemented in the starting code yet.");
                 continue;
             }
@@ -60,14 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
-        let result = rm_client_sync::exchange(
-            &client,
-            &args.url,
-            method.parse().unwrap(),
-            path,
-            &token,
-            if body.is_null() { None } else { Some(&body) },
-        );
+        let result = exchange(&client, &args.url, method, &path, &token, body.as_ref());
         match result {
             Ok((status, value)) => {
                 println!("{status} {value}");
