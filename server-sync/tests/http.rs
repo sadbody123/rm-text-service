@@ -205,7 +205,7 @@ fn http_put_and_get_text() {
     assert_eq!(created.into_json::<Value>().unwrap(), json!({"data": null}));
     let fetched = client
         .get("/texts/note")
-        .header(Header::new("Authorization", authorization))
+        .header(Header::new("Authorization", authorization.clone()))
         .dispatch();
     assert_eq!(fetched.status(), Status::Ok);
     assert_eq!(
@@ -225,6 +225,48 @@ fn http_put_and_get_text() {
             .status(),
         Status::BadRequest
     );
+    assert_eq!(
+        client
+            .put("/texts/b")
+            .header(ContentType::JSON)
+            .header(Header::new("Authorization", authorization.clone()))
+            .body(r#"{"text":"b"}"#)
+            .dispatch()
+            .status(),
+        Status::Ok
+    );
+    let listed = client
+        .get("/texts")
+        .header(Header::new("Authorization", authorization.clone()))
+        .dispatch();
+    assert_eq!(listed.status(), Status::Ok);
+    assert_eq!(
+        listed.into_json::<Value>().unwrap(),
+        json!({"data": ["b", "note"]})
+    );
+    assert_eq!(
+        client
+            .delete("/texts/missing")
+            .header(Header::new("Authorization", authorization.clone()))
+            .dispatch()
+            .status(),
+        Status::NotFound
+    );
+    assert_eq!(
+        client
+            .delete("/texts/note")
+            .header(Header::new("Authorization", authorization.clone()))
+            .dispatch()
+            .status(),
+        Status::Ok
+    );
+    let remaining = client
+        .get("/texts")
+        .header(Header::new("Authorization", authorization))
+        .dispatch()
+        .into_json::<Value>()
+        .unwrap();
+    assert_eq!(remaining, json!({"data": ["b"]}));
 }
 
 #[test]
