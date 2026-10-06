@@ -1,0 +1,29 @@
+name: 提交检查
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commits:
+    name: 提交说明与 GPG
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: 安装 commitlint
+        run: npm install --no-save --no-package-lock @commitlint/cli@19 @commitlint/config-conventional@19
+
+      - name: 检查说明与 GPG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/check_commits.sh

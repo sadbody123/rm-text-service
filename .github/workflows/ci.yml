@@ -1,0 +1,63 @@
+name: Rust 检查
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust 检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 发现 crate
+        id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t manifests < <(find . -name Cargo.toml -not -path '*/target/*' | sort)
+          if [ "${#manifests[@]}" -eq 0 ]; then
+            echo "尚无 crate"
+            echo "has_crates=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "has_crates=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "manifests<<EOF"
+            printf '%s\n' "${manifests[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 安装 Rust
+        if: steps.find.outputs.has_crates == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: 检查 crate
+        if: steps.find.outputs.has_crates == 'true'
+        shell: bash
+        env:
+          MANIFESTS: ${{ steps.find.outputs.manifests }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r manifest; do
+            [ -z "${manifest}" ] && continue
+            dir=$(dirname "${manifest}")
+            echo "::group::${dir}"
+            (
+              cd "${dir}"
+              cargo fmt -- --check
+              cargo check --locked
+              cargo clippy --locked --all-targets -- -D warnings
+              cargo test --locked
+              cargo build --release --locked
+            )
+            echo "::endgroup::"
+          done <<< "${MANIFESTS}"
