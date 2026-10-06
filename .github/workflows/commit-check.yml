@@ -26,4 +26,6 @@ jobs:
       - name: 检查说明与 GPG
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/check_commits.sh
+        run: |
+          export PATH="${PWD}/node_modules/.bin:${PATH}"
+          bash .github/scripts/check_commits.sh

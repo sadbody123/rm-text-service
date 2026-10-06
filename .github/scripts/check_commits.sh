@@ -16,33 +16,42 @@ if [ "${#shas[@]}" -eq 0 ]; then
   exit 1
 fi
 
+if ! command -v commitlint >/dev/null 2>&1; then
+  echo "::error::找不到 commitlint，无法检查提交说明"
+  exit 1
+fi
+
 failed=0
 for sha in "${shas[@]}"; do
   echo "检查 ${sha}"
+  commit_failed=0
+
   if ! git log -1 --format=%B "${sha}" | commitlint --verbose; then
     echo "::error::提交 ${sha} 的说明不符合 Conventional Commits"
-    failed=1
+    commit_failed=1
   fi
 
   if ! meta=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}"); then
     echo "::error::无法读取提交 ${sha} 的 GitHub 验证信息"
-    failed=1
-    continue
+    commit_failed=1
+  else
+    verified=$(printf '%s' "${meta}" | jq -r '.commit.verification.verified')
+    reason=$(printf '%s' "${meta}" | jq -r '.commit.verification.reason // "unknown"')
+    signature=$(printf '%s' "${meta}" | jq -r '.commit.verification.signature // ""')
+
+    if [ "${verified}" != "true" ]; then
+      echo "::error::提交 ${sha} 未经 GitHub 验证（reason=${reason}）"
+      commit_failed=1
+    elif ! printf '%s' "${signature}" | grep -q "BEGIN PGP SIGNATURE"; then
+      echo "::error::提交 ${sha} 不是 OpenPGP 签名"
+      commit_failed=1
+    fi
   fi
 
-  verified=$(printf '%s' "${meta}" | jq -r '.commit.verification.verified')
-  reason=$(printf '%s' "${meta}" | jq -r '.commit.verification.reason // "unknown"')
-  signature=$(printf '%s' "${meta}" | jq -r '.commit.verification.signature // ""')
-
-  if [ "${verified}" != "true" ]; then
-    echo "::error::提交 ${sha} 未经 GitHub 验证（reason=${reason}）"
+  if [ "${commit_failed}" -ne 0 ]; then
     failed=1
-    continue
-  fi
-
-  if ! printf '%s' "${signature}" | grep -q "BEGIN PGP SIGNATURE"; then
-    echo "::error::提交 ${sha} 不是 OpenPGP 签名"
-    failed=1
+  else
+    echo "提交 ${sha} 的说明和 GPG 签名已通过"
   fi
 done
 
