@@ -2,7 +2,8 @@ use clap::Parser;
 use reqwest::Method;
 use reqwest::blocking::Client;
 use rm_client_sync::{
-    exchange, prepare_delete_text, prepare_echo, prepare_get, prepare_put, read_multiline_text,
+    TokenChange, exchange, prepare_delete_text, prepare_delete_user, prepare_echo, prepare_get,
+    prepare_put, read_multiline_text, token_change,
 };
 use serde_json::json;
 use std::io::{self, Write};
@@ -77,8 +78,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (prepared.method, prepared.path, prepared.body)
             }
             "delete-user" => {
-                println!("This task is not implemented in the starting code yet.");
-                continue;
+                let prepared = prepare_delete_user();
+                (prepared.method, prepared.path, prepared.body)
             }
             _ => {
                 println!("Unknown command.");
@@ -89,17 +90,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match result {
             Ok((status, value)) => {
                 println!("{status} {value}");
-                if command == "login"
-                    && status == 200
-                    && let Some(next) = value["data"]["token"].as_str()
-                {
-                    token = next.into();
-                }
-                if status == 401 {
-                    println!("Please log in again.");
-                }
-                if status == 401 || (command == "logout" && status == 200) {
-                    token.clear();
+                match token_change(&command, status, &value) {
+                    TokenChange::Set(next) => token = next,
+                    TokenChange::Clear { prompt_login } => {
+                        if prompt_login {
+                            println!("Please log in again.");
+                        }
+                        token.clear();
+                    }
+                    TokenChange::Keep => {}
                 }
             }
             Err(error) => eprintln!("Request failed: {error}"),

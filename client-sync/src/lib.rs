@@ -105,7 +105,10 @@ pub enum TokenChange {
 }
 
 pub fn token_change(command: &str, status: u16, value: &Value) -> TokenChange {
-    if command == "login" && status == 200 && let Some(token) = value["data"]["token"].as_str() {
+    if command == "login"
+        && status == 200
+        && let Some(token) = value["data"]["token"].as_str()
+    {
         return TokenChange::Set(token.to_owned());
     }
     if status == 401 {
@@ -202,6 +205,54 @@ mod tests {
                 path: "/texts/note".to_owned(),
                 body: None,
             }
+        );
+    }
+
+    #[test]
+    fn delete_user_targets_the_current_account() {
+        assert_eq!(
+            prepare_delete_user(),
+            PreparedRequest {
+                method: Method::DELETE,
+                path: "/users/me".to_owned(),
+                body: None,
+            }
+        );
+    }
+
+    #[test]
+    fn login_saves_token_and_logout_or_deletion_clears_it() {
+        assert_eq!(
+            token_change("login", 200, &json!({ "data": { "token": "abc" } })),
+            TokenChange::Set("abc".to_owned())
+        );
+        assert_eq!(
+            token_change("logout", 200, &json!({ "data": null })),
+            TokenChange::Clear {
+                prompt_login: false
+            }
+        );
+        assert_eq!(
+            token_change("delete-user", 200, &json!({ "data": null })),
+            TokenChange::Clear {
+                prompt_login: false
+            }
+        );
+    }
+
+    #[test]
+    fn unauthorized_response_clears_the_token_and_asks_for_login() {
+        assert_eq!(
+            token_change("list", 401, &json!({ "message": "expired" })),
+            TokenChange::Clear { prompt_login: true }
+        );
+    }
+
+    #[test]
+    fn login_without_a_token_keeps_the_current_session() {
+        assert_eq!(
+            token_change("login", 200, &json!({ "data": {} })),
+            TokenChange::Keep
         );
     }
 }

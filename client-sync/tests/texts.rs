@@ -211,3 +211,50 @@ fn missing_text_and_ordered_list_keep_the_server_status_and_body() {
         peer.join().unwrap();
     }
 }
+
+#[test]
+fn delete_user_sends_bearer_token() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let peer = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut headers = String::new();
+        loop {
+            let mut line = String::new();
+            assert!(reader.read_line(&mut line).unwrap() > 0);
+            if line == "\r\n" {
+                break;
+            }
+            headers.push_str(&line);
+        }
+        assert!(headers.starts_with("DELETE /users/me HTTP/1.1\r\n"));
+        assert!(
+            headers
+                .to_lowercase()
+                .contains("authorization: bearer session-token\r\n")
+        );
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: close\r\n\r\n{\"data\":null}")
+            .unwrap();
+    });
+    let client = Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .unwrap();
+    let result = exchange(
+        &client,
+        &url,
+        Method::DELETE,
+        "/users/me",
+        "session-token",
+        None,
+    )
+    .unwrap();
+    assert_eq!(result, (200, json!({ "data": null })));
+    peer.join().unwrap();
+}
