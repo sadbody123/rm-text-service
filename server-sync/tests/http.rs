@@ -71,10 +71,53 @@ fn http_account_lifecycle() {
     assert_eq!(
         client
             .get("/texts")
+            .header(Header::new("Authorization", authorization.clone()))
+            .dispatch()
+            .status(),
+        Status::Unauthorized
+    );
+    let login = client
+        .post("/sessions")
+        .header(ContentType::JSON)
+        .body(&account)
+        .dispatch()
+        .into_json::<Value>()
+        .unwrap();
+    let authorization = format!("Bearer {}", login["data"]["token"].as_str().unwrap());
+    assert_eq!(
+        client
+            .put("/texts/note")
+            .header(ContentType::JSON)
+            .header(Header::new("Authorization", authorization.clone()))
+            .body(r#"{"text":"secret"}"#)
+            .dispatch()
+            .status(),
+        Status::Ok
+    );
+    assert_eq!(
+        client
+            .delete("/users/me")
+            .header(Header::new("Authorization", authorization.clone()))
+            .dispatch()
+            .status(),
+        Status::Ok
+    );
+    assert_eq!(
+        client
+            .get("/texts")
             .header(Header::new("Authorization", authorization))
             .dispatch()
             .status(),
         Status::Unauthorized
+    );
+    assert_eq!(
+        client
+            .post("/users")
+            .header(ContentType::JSON)
+            .body(&account)
+            .dispatch()
+            .status(),
+        Status::Created
     );
 }
 
@@ -274,7 +317,7 @@ fn unimplemented_routes_are_absent() {
     let client = Client::tracked(create_app()).unwrap();
     assert_eq!(
         client.delete("/users/me").dispatch().status(),
-        Status::NotFound
+        Status::Unauthorized
     );
     assert_eq!(
         client.delete("/texts/note").dispatch().status(),
