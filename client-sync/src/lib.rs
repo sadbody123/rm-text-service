@@ -65,6 +65,22 @@ pub fn prepare_echo(text: &str) -> PreparedRequest {
     }
 }
 
+pub fn prepare_put(name: &str, text: &str) -> PreparedRequest {
+    PreparedRequest {
+        method: Method::PUT,
+        path: format!("/texts/{name}"),
+        body: Some(json!({ "text": text })),
+    }
+}
+
+pub fn prepare_get(name: &str) -> PreparedRequest {
+    PreparedRequest {
+        method: Method::GET,
+        path: format!("/texts/{name}"),
+        body: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +123,34 @@ mod tests {
                 method: Method::POST,
                 path: "/echo".to_owned(),
                 body: Some(json!({ "text": "你好\nRM" })),
+            }
+        );
+    }
+
+    #[test]
+    fn put_and_get_use_the_name_and_only_put_sends_text() {
+        assert_eq!(
+            prepare_put("note", "你好\nRM"),
+            PreparedRequest {
+                method: Method::PUT,
+                path: "/texts/note".to_owned(),
+                body: Some(json!({ "text": "你好\nRM" })),
+            }
+        );
+        assert_eq!(
+            prepare_put("note", "replaced"),
+            PreparedRequest {
+                method: Method::PUT,
+                path: "/texts/note".to_owned(),
+                body: Some(json!({ "text": "replaced" })),
+            }
+        );
+        assert_eq!(
+            prepare_get("note"),
+            PreparedRequest {
+                method: Method::GET,
+                path: "/texts/note".to_owned(),
+                body: None,
             }
         );
     }

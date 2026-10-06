@@ -1,7 +1,7 @@
 use clap::Parser;
 use reqwest::Method;
 use reqwest::blocking::Client;
-use rm_client_sync::{exchange, prepare_echo, read_multiline_text};
+use rm_client_sync::{exchange, prepare_echo, prepare_get, prepare_put, read_multiline_text};
 use serde_json::json;
 use std::io::{self, Write};
 use std::time::Duration;
@@ -19,6 +19,10 @@ fn input(prompt: &str) -> io::Result<String> {
         return Err(io::ErrorKind::UnexpectedEof.into());
     }
     Ok(line.trim_end_matches(['\r', '\n']).to_owned())
+}
+fn read_text() -> io::Result<String> {
+    println!("text: finish with a line containing only .");
+    read_multiline_text(&mut io::stdin().lock())
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -54,12 +58,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (Method::POST, path.to_owned(), Some(body))
             }
             "echo" => {
-                println!("text: finish with a line containing only .");
-                let text = read_multiline_text(&mut io::stdin().lock())?;
-                let prepared = prepare_echo(&text);
+                let prepared = prepare_echo(&read_text()?);
                 (prepared.method, prepared.path, prepared.body)
             }
-            "delete-user" | "put" | "get" | "delete" => {
+            "put" => {
+                let name = input("name: ")?;
+                let prepared = prepare_put(&name, &read_text()?);
+                (prepared.method, prepared.path, prepared.body)
+            }
+            "get" => {
+                let prepared = prepare_get(&input("name: ")?);
+                (prepared.method, prepared.path, prepared.body)
+            }
+            "delete-user" | "delete" => {
                 println!("This task is not implemented in the starting code yet.");
                 continue;
             }

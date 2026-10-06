@@ -18,7 +18,9 @@ cargo build --release --locked
 cargo run --locked -- --url http://127.0.0.1:7878
 ```
 
-默认地址是 `http://127.0.0.1:7878`。可以输入 `ping`、`register`、`login`、`logout`、`list`、`echo` 和 `q`。
+默认地址是 `http://127.0.0.1:7878`。可以输入 `ping`、`register`、`login`、`logout`、`list`、`echo`、`put`、`get` 和 `q`。
+
+`put` 和 `get` 会先询问文本名称。`put` 再按与 `echo` 相同的方式读取文本，并在已登录时带上令牌。
 
 `echo` 会逐行读取文本，单独一行 `.` 结束。行与行之间用换行连接，最后一行内容后面不自动加换行。直接输入 `.` 表示空字符串；在结束前多输入一个空行，可以保留末尾换行。单独一行 `..` 表示正文里的一行 `.`。
 
