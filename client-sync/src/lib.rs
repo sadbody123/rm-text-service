@@ -28,8 +28,9 @@ pub fn exchange(
 
 /// Read text until a line containing only `.`.
 ///
-/// A line containing only `..` is stored as a literal `.`. Lines are joined with
-/// `\n`, and the result does not gain an extra trailing newline.
+/// A line that starts with `..` drops one leading dot, so `.` and `..` in the
+/// body can both be expressed. Lines are joined with `\n`, and the result does
+/// not gain an extra trailing newline.
 pub fn read_multiline_text(reader: &mut impl BufRead) -> io::Result<String> {
     let mut lines = Vec::new();
     loop {
@@ -41,8 +42,8 @@ pub fn read_multiline_text(reader: &mut impl BufRead) -> io::Result<String> {
         if content == "." {
             break;
         }
-        if content == ".." {
-            lines.push(".".to_owned());
+        if let Some(rest) = content.strip_prefix("..") {
+            lines.push(format!(".{rest}"));
         } else {
             lines.push(content.to_owned());
         }
@@ -152,8 +153,10 @@ mod tests {
     }
 
     #[test]
-    fn doubled_dot_is_a_literal_terminator_line() {
+    fn dot_stuffing_is_reversible() {
         assert_eq!(read("..\n.\n"), ".");
+        assert_eq!(read("...\n.\n"), "..");
+        assert_eq!(read("....\n.\n"), "...");
     }
 
     #[test]
