@@ -14,6 +14,7 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("POST", "/users"),
     ("POST", "/sessions"),
     ("DELETE", "/sessions/current"),
+    ("DELETE", "/users/me"),
     ("GET", "/texts"),
 ];
 
@@ -88,6 +89,37 @@ fn password_hash(password: &str, salt: &[u8; 16]) -> [u8; 32] {
     output
 }
 
+impl Service {
+    fn login_snapshot(&self, name: &str) -> Result<([u8; 16], [u8; 32]), (u16, Value)> {
+        let users = self.users.lock().unwrap();
+        let Some(user) = users.get(name) else {
+            return Err(error(401, "Invalid username or password"));
+        };
+        Ok((user.salt, user.digest))
+    }
+
+    fn complete_login(
+        &self,
+        name: &str,
+        password: &str,
+        salt: [u8; 16],
+        expected: [u8; 32],
+    ) -> (u16, Value) {
+        let digest = password_hash(password, &salt);
+        let mut users = self.users.lock().unwrap();
+        let Some(user) = users.get_mut(name) else {
+            return error(401, "Invalid username or password");
+        };
+        if user.salt != salt || !bool::from(digest.ct_eq(&expected)) {
+            return error(401, "Invalid username or password");
+        }
+        let token = new_token();
+        user.token = Some(token.clone());
+        // Later server task: record a deadline and include expires_in.
+        (200, json!({"data": {"token": token}}))
+    }
+}
+
 fn new_token() -> String {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
@@ -153,27 +185,14 @@ impl Service {
                 );
                 return (201, json!({"data": {"username": name}}));
             }
-            let (salt, expected) = {
-                let users = self.users.lock().unwrap();
-                let Some(user) = users.get(name) else {
-                    return error(401, "Invalid username or password");
-                };
-                (user.salt, user.digest)
+            let (salt, expected) = match self.login_snapshot(name) {
+                Ok(snapshot) => snapshot,
+                Err(response) => return response,
             };
-            let digest = password_hash(password, &salt);
-            let mut users = self.users.lock().unwrap();
-            let Some(user) = users.get_mut(name) else {
-                return error(401, "Invalid username or password");
-            };
-            if user.salt != salt || !bool::from(digest.ct_eq(&expected)) {
-                return error(401, "Invalid username or password");
-            }
-            let token = new_token();
-            user.token = Some(token.clone());
-            // Later server task: record a deadline and include expires_in.
-            return (200, json!({"data": {"token": token}}));
+            return self.complete_login(name, password, salt, expected);
         }
-        let protected = matches!(path, "/texts" | "/sessions/current") || text_name(path).is_some();
+        let protected = matches!(path, "/texts" | "/sessions/current" | "/users/me")
+            || text_name(path).is_some();
         if protected {
             if let Some(name) = text_name(path)
                 && !valid_name(name, 64)
@@ -189,6 +208,10 @@ impl Service {
             let Some(name) = name else {
                 return error(401, "Login required");
             };
+            if method == "DELETE" && path == "/users/me" {
+                users.remove(&name);
+                return (200, json!({"data": null}));
+            }
             let user = users.get_mut(&name).unwrap();
             // Later server task: check expiry and keep authorization and state mutation atomic.
             if method == "DELETE" && path == "/sessions/current" {
@@ -253,6 +276,52 @@ mod tests {
         assert_eq!(
             service.handle("GET", "/texts", &Value::Null, &current).0,
             401
+        );
+    }
+
+    #[test]
+    fn stale_login_does_not_authenticate_a_recreated_account() {
+        let service = Service::default();
+        let original = json!({"username":"alice", "password":"password1"});
+        assert_eq!(service.handle("POST", "/users", &original, "").0, 201);
+        let (salt, digest) = service.login_snapshot("alice").unwrap();
+        let login = service.handle("POST", "/sessions", &original, "");
+        let authorization = format!("Bearer {}", login.1["data"]["token"].as_str().unwrap());
+        assert_eq!(
+            service
+                .handle(
+                    "PUT",
+                    "/texts/note",
+                    &json!({"text": "secret"}),
+                    &authorization
+                )
+                .0,
+            200
+        );
+        assert_eq!(
+            service
+                .handle("DELETE", "/users/me", &Value::Null, &authorization)
+                .0,
+            200
+        );
+        let replacement = json!({"username":"alice", "password":"password2"});
+        assert_eq!(service.handle("POST", "/users", &replacement, "").0, 201);
+        assert_eq!(
+            service.complete_login("alice", "password1", salt, digest).0,
+            401
+        );
+        {
+            let users = service.users.lock().unwrap();
+            let user = users.get("alice").unwrap();
+            assert!(user.token.is_none());
+            assert!(user.texts.is_empty());
+        }
+        let login = service.handle("POST", "/sessions", &replacement, "");
+        assert_eq!(login.0, 200);
+        let authorization = format!("Bearer {}", login.1["data"]["token"].as_str().unwrap());
+        assert_eq!(
+            service.handle("GET", "/texts", &Value::Null, &authorization),
+            (200, json!({"data": []}))
         );
     }
 }
