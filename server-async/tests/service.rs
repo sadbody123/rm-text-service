@@ -300,3 +300,94 @@ fn a_new_login_replaces_the_token_without_dropping_texts() {
         (200, json!({"data": "kept"}))
     );
 }
+
+#[test]
+fn concurrent_logins_leave_one_valid_token() {
+    let service = std::sync::Arc::new(Service::default());
+    let account = json!({"username":"alice","password":"password1"});
+    assert_eq!(service.handle("POST", "/users", &account, "").0, 201);
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let service = service.clone();
+            let account = account.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                service.handle("POST", "/sessions", &account, "")
+            })
+        })
+        .collect();
+    let logins: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
+    assert!(logins.iter().all(|login| login.0 == 200));
+    let tokens: Vec<_> = logins
+        .iter()
+        .map(|login| login.1["data"]["token"].as_str().unwrap().to_owned())
+        .collect();
+    assert_ne!(tokens[0], tokens[1]);
+    let valid = tokens
+        .iter()
+        .filter(|token| {
+            service
+                .handle("GET", "/texts", &Value::Null, &format!("Bearer {token}"))
+                .0
+                == 200
+        })
+        .count();
+    assert_eq!(valid, 1);
+}
+
+#[test]
+fn concurrent_put_and_delete_keep_a_serial_outcome() {
+    let service = std::sync::Arc::new(Service::default());
+    let authorization = account(&service, "alice");
+    assert_eq!(
+        service
+            .handle(
+                "PUT",
+                "/texts/note",
+                &json!({"text": "old"}),
+                &authorization
+            )
+            .0,
+        200
+    );
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let put = {
+        let service = service.clone();
+        let authorization = authorization.clone();
+        let barrier = barrier.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            service
+                .handle(
+                    "PUT",
+                    "/texts/note",
+                    &json!({"text": "new"}),
+                    &authorization,
+                )
+                .0
+        })
+    };
+    let delete = {
+        let service = service.clone();
+        let authorization = authorization.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            service
+                .handle("DELETE", "/texts/note", &Value::Null, &authorization)
+                .0
+        })
+    };
+    assert_eq!(put.join().unwrap(), 200);
+    assert_eq!(delete.join().unwrap(), 200);
+    let fetched = service.handle("GET", "/texts/note", &Value::Null, &authorization);
+    if fetched.0 == 200 {
+        assert_eq!(fetched.1, json!({"data": "new"}));
+    } else {
+        assert_eq!(fetched.0, 404);
+    }
+}

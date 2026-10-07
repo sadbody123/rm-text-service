@@ -1,4 +1,4 @@
-use crate::{ROUTES, Service, error, route_error};
+use crate::{Service, displayed_routes, error, route_error};
 use rocket::data::ToByteUnit;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::{Method, Status};
@@ -25,7 +25,7 @@ impl Fairing for ConsoleOutput {
         eprintln!("Listening on http://{address}");
         eprintln!("Press Ctrl+C to exit. All in-memory data is lost on exit.");
         eprintln!("Routes:");
-        for (method, path) in ROUTES {
+        for (method, path) in displayed_routes() {
             eprintln!("  {method} {path}");
         }
     }

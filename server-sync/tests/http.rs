@@ -314,7 +314,7 @@ fn http_put_and_get_text() {
 }
 
 #[test]
-fn unimplemented_routes_are_absent() {
+fn protected_routes_and_unsupported_methods_return_expected_status() {
     let client = Client::tracked(create_app()).unwrap();
     assert_eq!(
         client.delete("/users/me").dispatch().status(),

@@ -20,6 +20,14 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("GET", "/texts"),
 ];
 
+pub fn displayed_routes() -> impl Iterator<Item = (&'static str, &'static str)> {
+    ROUTES.iter().copied().chain([
+        ("PUT", "/texts/{name}"),
+        ("GET", "/texts/{name}"),
+        ("DELETE", "/texts/{name}"),
+    ])
+}
+
 pub fn route_error(method: &str, path: &str) -> Option<u16> {
     if let Some((allowed, _)) = ROUTES.iter().find(|(_, route)| *route == path) {
         return (*allowed != method).then_some(405);
@@ -45,7 +53,7 @@ fn text_name(path: &str) -> Option<&str> {
 
 struct Credential {
     token: String,
-    expires_at: Instant,
+    issued_at: Instant,
 }
 
 pub struct User {
@@ -138,7 +146,7 @@ impl Service {
         let token = new_token();
         user.token = Some(Credential {
             token: token.clone(),
-            expires_at: Instant::now() + self.token_ttl,
+            issued_at: Instant::now(),
         });
         (
             200,
@@ -233,13 +241,15 @@ impl Service {
             }
             let token = authorization.strip_prefix("Bearer ").unwrap_or("");
             let now = Instant::now();
+            let token_ttl = self.token_ttl;
             let mut users = self.users.lock().unwrap();
             let name = users
                 .iter()
                 .find(|(_, user)| {
                     !token.is_empty()
                         && user.token.as_ref().is_some_and(|credential| {
-                            credential.token == token && now < credential.expires_at
+                            credential.token == token
+                                && now.saturating_duration_since(credential.issued_at) < token_ttl
                         })
                 })
                 .map(|(name, _)| name.clone());
@@ -251,7 +261,6 @@ impl Service {
                 return (200, json!({"data": null}));
             }
             let user = users.get_mut(&name).unwrap();
-            // Later server task: check expiry and keep authorization and state mutation atomic.
             if method == "DELETE" && path == "/sessions/current" {
                 user.token = None;
                 return (200, json!({"data": null}));
@@ -389,6 +398,22 @@ mod tests {
                 .handle("DELETE", "/sessions/current", &Value::Null, &authorization)
                 .0,
             401
+        );
+    }
+
+    #[test]
+    fn very_large_ttl_does_not_panic() {
+        let service = Service::new(Duration::from_secs(u64::MAX));
+        let account = json!({"username":"alice", "password":"password1"});
+        assert_eq!(service.handle("POST", "/users", &account, "").0, 201);
+        let login = service.handle("POST", "/sessions", &account, "");
+        assert_eq!(login.0, 200);
+        let authorization = format!("Bearer {}", login.1["data"]["token"].as_str().unwrap());
+        assert_eq!(
+            service
+                .handle("GET", "/texts", &Value::Null, &authorization)
+                .0,
+            200
         );
     }
 }

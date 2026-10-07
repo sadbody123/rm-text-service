@@ -81,3 +81,30 @@ fn connection_failure_returns_an_error() {
     );
     assert!(result.is_err());
 }
+
+#[test]
+fn exchange_times_out_when_the_peer_accepts_but_never_responds() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let peer = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        std::thread::sleep(Duration::from_millis(800));
+        drop(stream);
+    });
+    let client = Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_millis(200))
+        .build()
+        .unwrap();
+    let result = exchange(
+        &client,
+        &format!("http://{address}"),
+        Method::GET,
+        "/ping",
+        "",
+        None,
+    );
+    let error = result.expect_err("a silent peer should time out");
+    assert!(error.is_timeout(), "{error}");
+    peer.join().unwrap();
+}
