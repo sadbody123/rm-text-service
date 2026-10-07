@@ -18,10 +18,25 @@ pub const ROUTES: &[(&str, &str)] = &[
 ];
 
 pub fn route_error(method: &str, path: &str) -> Option<u16> {
-    match ROUTES.iter().find(|(_, route)| *route == path) {
-        None => Some(404),
-        Some((allowed, _)) if *allowed != method => Some(405),
-        Some(_) => None,
+    if let Some((allowed, _)) = ROUTES.iter().find(|(_, route)| *route == path) {
+        return (*allowed != method).then_some(405);
+    }
+    if text_name(path).is_some() {
+        return if matches!(method, "GET" | "PUT" | "DELETE") {
+            None
+        } else {
+            Some(405)
+        };
+    }
+    Some(404)
+}
+
+fn text_name(path: &str) -> Option<&str> {
+    let name = path.strip_prefix("/texts/")?;
+    if name.is_empty() || name.contains('/') {
+        None
+    } else {
+        Some(name)
     }
 }
 
@@ -158,8 +173,13 @@ impl Service {
             // Later server task: record a deadline and include expires_in.
             return (200, json!({"data": {"token": token}}));
         }
-        let protected = matches!(path, "/texts" | "/sessions/current");
+        let protected = matches!(path, "/texts" | "/sessions/current") || text_name(path).is_some();
         if protected {
+            if let Some(name) = text_name(path)
+                && !valid_name(name, 64)
+            {
+                return error(400, "Invalid text name");
+            }
             let token = authorization.strip_prefix("Bearer ").unwrap_or("");
             let mut users = self.users.lock().unwrap();
             let name = users
@@ -177,6 +197,22 @@ impl Service {
             }
             if method == "GET" && path == "/texts" {
                 return (200, json!({"data": user.texts.keys().collect::<Vec<_>>()}));
+            }
+            if let Some(text_name) = text_name(path) {
+                if method == "PUT" {
+                    let text = match text_value(body) {
+                        Ok(text) => text,
+                        Err(response) => return response,
+                    };
+                    user.texts.insert(text_name.to_owned(), text);
+                    return (200, json!({"data": null}));
+                }
+                if method == "GET" {
+                    let Some(text) = user.texts.get(text_name) else {
+                        return error(404, "Text not found");
+                    };
+                    return (200, json!({"data": text}));
+                }
             }
         }
         error(404, "Not found")

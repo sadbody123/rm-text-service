@@ -18,7 +18,7 @@ cargo build --release --locked
 cargo run --locked -- --address 127.0.0.1:7878
 ```
 
-默认地址是 `127.0.0.1:7878`。接口包括 `GET /ping`、`POST /echo`、`POST /users`、`POST /sessions`、`DELETE /sessions/current` 和 `GET /texts`。
+默认地址是 `127.0.0.1:7878`。接口包括 `GET /ping`、`POST /echo`、`POST /users`、`POST /sessions`、`DELETE /sessions/current`、`GET /texts`、`PUT /texts/{name}` 和 `GET /texts/{name}`。
 
 ## 代码结构
 

@@ -78,3 +78,74 @@ fn concurrent_registration_has_one_winner() {
     assert_eq!(statuses.iter().filter(|&&s| s == 201).count(), 1);
     assert_eq!(statuses.iter().filter(|&&s| s == 409).count(), 3);
 }
+
+fn account(service: &Service, name: &str) -> String {
+    let body = json!({"username": name, "password": "password1"});
+    assert_eq!(service.handle("POST", "/users", &body, "").0, 201);
+    let login = service.handle("POST", "/sessions", &body, "");
+    format!("Bearer {}", login.1["data"]["token"].as_str().unwrap())
+}
+
+#[test]
+fn put_and_get_are_scoped_to_the_authenticated_user() {
+    let service = Service::default();
+    let alice = account(&service, "alice");
+    let bob = account(&service, "bob");
+    assert_eq!(
+        service.handle("PUT", "/texts/note", &json!({"text": "你好\nRM"}), &alice),
+        (200, json!({"data": null}))
+    );
+    assert_eq!(
+        service.handle("GET", "/texts/note", &Value::Null, &alice),
+        (200, json!({"data": "你好\nRM"}))
+    );
+    assert_eq!(
+        service
+            .handle("PUT", "/texts/note", &json!({"text": "replaced"}), &alice)
+            .0,
+        200
+    );
+    assert_eq!(
+        service.handle("GET", "/texts/note", &Value::Null, &alice).1,
+        json!({"data": "replaced"})
+    );
+    assert_eq!(
+        service.handle("GET", "/texts/note", &Value::Null, &bob).0,
+        404
+    );
+    assert_eq!(
+        service
+            .handle("GET", "/texts/missing", &Value::Null, &alice)
+            .0,
+        404
+    );
+    assert_eq!(
+        service
+            .handle("PUT", "/texts/note", &json!({"text": "x"}), "")
+            .0,
+        401
+    );
+    assert_eq!(
+        service
+            .handle("PUT", "/texts/bad name", &json!({"text": "x"}), &alice)
+            .0,
+        400
+    );
+    assert_eq!(
+        service
+            .handle("POST", "/texts/note", &json!({"text": "x"}), &alice)
+            .0,
+        405
+    );
+    assert_eq!(
+        service
+            .handle(
+                "PUT",
+                "/texts/note",
+                &json!({"text": "x".repeat(65_537)}),
+                &alice
+            )
+            .0,
+        413
+    );
+}
