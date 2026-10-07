@@ -213,6 +213,12 @@ impl Service {
                     };
                     return (200, json!({"data": text}));
                 }
+                if method == "DELETE" {
+                    if user.texts.remove(text_name).is_none() {
+                        return error(404, "Text not found");
+                    }
+                    return (200, json!({"data": null}));
+                }
             }
         }
         error(404, "Not found")

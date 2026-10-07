@@ -149,3 +149,51 @@ fn put_and_get_are_scoped_to_the_authenticated_user() {
         413
     );
 }
+
+#[test]
+fn delete_updates_sorted_lists_without_crossing_users() {
+    let service = Service::default();
+    let alice = account(&service, "alice");
+    let bob = account(&service, "bob");
+    for (auth, name) in [(&alice, "b"), (&alice, "a"), (&bob, "a"), (&bob, "c")] {
+        assert_eq!(
+            service
+                .handle(
+                    "PUT",
+                    &format!("/texts/{name}"),
+                    &json!({"text": name}),
+                    auth
+                )
+                .0,
+            200
+        );
+    }
+    assert_eq!(
+        service.handle("GET", "/texts", &Value::Null, &alice).1,
+        json!({"data": ["a", "b"]})
+    );
+    assert_eq!(
+        service.handle("DELETE", "/texts/a", &Value::Null, &alice),
+        (200, json!({"data": null}))
+    );
+    assert_eq!(
+        service.handle("GET", "/texts", &Value::Null, &alice).1,
+        json!({"data": ["b"]})
+    );
+    assert_eq!(
+        service.handle("GET", "/texts", &Value::Null, &bob).1,
+        json!({"data": ["a", "c"]})
+    );
+    assert_eq!(
+        service.handle("DELETE", "/texts/a", &Value::Null, &alice).0,
+        404
+    );
+    assert_eq!(
+        service.handle("DELETE", "/texts/a", &Value::Null, &bob).0,
+        200
+    );
+    assert_eq!(
+        service.handle("GET", "/texts", &Value::Null, &bob).1,
+        json!({"data": ["c"]})
+    );
+}

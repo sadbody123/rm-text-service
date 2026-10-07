@@ -201,6 +201,50 @@ fn http_put_and_get_text() {
             .status(),
         Status::BadRequest
     );
+    assert_eq!(
+        client
+            .put("/texts/b")
+            .header(ContentType::JSON)
+            .header(Header::new("Authorization", authorization.clone()))
+            .body(r#"{"text":"b"}"#)
+            .dispatch()
+            .status(),
+        Status::Ok
+    );
+    let listed = client
+        .get("/texts")
+        .header(Header::new("Authorization", authorization.clone()))
+        .dispatch();
+    assert_eq!(listed.status(), Status::Ok);
+    assert_eq!(
+        listed.into_json::<Value>().unwrap(),
+        json!({"data": ["b", "note"]})
+    );
+    assert_eq!(
+        client
+            .delete("/texts/missing")
+            .header(Header::new("Authorization", authorization.clone()))
+            .dispatch()
+            .status(),
+        Status::NotFound
+    );
+    assert_eq!(
+        client
+            .delete("/texts/note")
+            .header(Header::new("Authorization", authorization.clone()))
+            .dispatch()
+            .status(),
+        Status::Ok
+    );
+    assert_eq!(
+        client
+            .get("/texts")
+            .header(Header::new("Authorization", authorization))
+            .dispatch()
+            .into_json::<Value>()
+            .unwrap(),
+        json!({"data": ["b"]})
+    );
 }
 
 #[test]
