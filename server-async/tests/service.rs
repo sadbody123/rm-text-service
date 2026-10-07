@@ -21,6 +21,39 @@ fn input_validation_and_baseline() {
 }
 
 #[test]
+fn echo_returns_text_and_rejects_bad_input() {
+    let service = Service::default();
+    for text in ["", "你好\nRM", "line"] {
+        assert_eq!(
+            service.handle("POST", "/echo", &json!({"text": text}), ""),
+            (200, json!({"data": text}))
+        );
+    }
+    assert_eq!(service.handle("GET", "/echo", &Value::Null, "").0, 405);
+    for body in [
+        Value::Null,
+        json!({}),
+        json!({"text": 42}),
+        json!({"text": "ok", "extra": 1}),
+        json!({"message": "ok"}),
+    ] {
+        assert_eq!(service.handle("POST", "/echo", &body, "").0, 400);
+    }
+    assert_eq!(
+        service
+            .handle("POST", "/echo", &json!({"text": "x".repeat(65_537)}), "")
+            .0,
+        413
+    );
+    assert_eq!(
+        service
+            .handle("POST", "/echo", &json!({"text": "y".repeat(65_536)}), "")
+            .0,
+        200
+    );
+}
+
+#[test]
 fn concurrent_registration_has_one_winner() {
     let service = std::sync::Arc::new(Service::default());
     let workers: Vec<_> = (0..4)

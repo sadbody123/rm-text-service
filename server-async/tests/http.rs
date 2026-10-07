@@ -98,10 +98,55 @@ fn http_input_and_routing() {
         Status::BadRequest
     );
     assert_eq!(client.get("/missing").dispatch().status(), Status::NotFound);
-    assert_eq!(client.get("/echo").dispatch().status(), Status::NotFound);
+    assert_eq!(
+        client.get("/echo").dispatch().status(),
+        Status::MethodNotAllowed
+    );
     assert_eq!(
         client.patch("/ping").dispatch().status(),
         Status::MethodNotAllowed
+    );
+}
+
+#[test]
+fn http_echo_round_trip_and_limits() {
+    let client = Client::tracked(create_app()).unwrap();
+    let echo = client
+        .post("/echo")
+        .header(ContentType::JSON)
+        .body(r#"{"text":"你好\nRM"}"#)
+        .dispatch();
+    assert_eq!(echo.status(), Status::Ok);
+    assert_eq!(
+        echo.into_json::<Value>().unwrap(),
+        json!({"data": "你好\nRM"})
+    );
+    assert_eq!(
+        client
+            .post("/echo")
+            .header(ContentType::JSON)
+            .body(r#"{"text":""}"#)
+            .dispatch()
+            .status(),
+        Status::Ok
+    );
+    assert_eq!(
+        client
+            .post("/echo")
+            .header(ContentType::JSON)
+            .body(r#"{"text":42}"#)
+            .dispatch()
+            .status(),
+        Status::BadRequest
+    );
+    assert_eq!(
+        client
+            .post("/echo")
+            .header(ContentType::JSON)
+            .body(json!({"text": "x".repeat(65_537)}).to_string())
+            .dispatch()
+            .status(),
+        Status::PayloadTooLarge
     );
 }
 
@@ -110,7 +155,6 @@ fn unimplemented_routes_are_absent() {
     use rocket::http::Method;
     let client = Client::tracked(create_app()).unwrap();
     for (method, path) in [
-        (Method::Post, "/echo"),
         (Method::Delete, "/users/me"),
         (Method::Put, "/texts/note"),
         (Method::Get, "/texts/note"),
