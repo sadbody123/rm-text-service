@@ -20,6 +20,14 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("GET", "/texts"),
 ];
 
+pub fn displayed_routes() -> impl Iterator<Item = (&'static str, &'static str)> {
+    ROUTES.iter().copied().chain([
+        ("PUT", "/texts/{name}"),
+        ("GET", "/texts/{name}"),
+        ("DELETE", "/texts/{name}"),
+    ])
+}
+
 pub fn route_error(method: &str, path: &str) -> Option<u16> {
     if let Some((allowed, _)) = ROUTES.iter().find(|(_, route)| *route == path) {
         return (*allowed != method).then_some(405);
